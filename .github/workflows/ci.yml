@@ -21,27 +21,39 @@ jobs:
           python-version: '3.12'
 
       - name: Install required packages
-        run: python -m pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
 
       - name: Create report and log folders
         run: |
-          if not exist reports mkdir reports
-          if not exist logs mkdir logs
+          New-Item -ItemType Directory -Force -Path reports | Out-Null
+          New-Item -ItemType Directory -Force -Path logs | Out-Null
 
       - name: Save environment information
         run: |
-          python --version > logs/environment_info.txt
-          python -m pip freeze >> logs/environment_info.txt
+          python --version | Out-File -FilePath logs/environment_info.txt -Encoding utf8
+          python -m pip freeze | Out-File -FilePath logs/environment_info.txt -Append -Encoding utf8
 
       - name: Run pytest automation tests
-        run: python -m pytest tests --junitxml=reports/result.xml --html=reports/result.html --self-contained-html > logs/test_log.txt
+        run: |
+          python -m pytest tests --junitxml=reports/result.xml --html=reports/result.html --self-contained-html *> logs/test_log.txt
+          if ($LASTEXITCODE -eq 0) {
+            "GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+            exit 0
+          } else {
+            "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+            exit $LASTEXITCODE
+          }
 
       - name: Upload test artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qa-test-artifacts
           path: |
             reports/result.xml
             reports/result.html
+            reports/quality_gate.txt
             logs/test_log.txt
             logs/environment_info.txt
