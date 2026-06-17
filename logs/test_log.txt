@@ -8,4 +8,4 @@ tests\test_device.py ......                                              [100%]
 
 --------- generated xml file: C:\qa-cicd-practice\reports\result.xml ----------
 --- Generated html report: file:///C:/qa-cicd-practice/reports/result.html ----
-============================== 6 passed in 0.03s ==============================
+============================== 6 passed in 0.02s ==============================
