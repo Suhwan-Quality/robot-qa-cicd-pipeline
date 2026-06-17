@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+
+# Optional: keep generated reports/logs local
+# reports/
+# logs/
