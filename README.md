@@ -1,6 +1,7 @@
-# CI/CD 기반 QA 자동화 검증 환경 구축 실습
-
+# CI/CD 기반 QA 자동화 검증 환경 구축 실습  
 ## Mock Robot Device Smoke & Regression Test Automation Project
+
+[QA CI Pipeline](https://github.com/Suhwan-Quality/robot-qa-cicd-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Suhwan-Quality/robot-qa-cicd-pipeline/actions/workflows/ci.yml)
 
 ## 1. 프로젝트 개요
 
