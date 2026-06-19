@@ -1,0 +1,11 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.3, pytest-9.1.0, pluggy-1.6.0
+rootdir: C:\qa-cicd-practice
+plugins: html-4.2.0, metadata-3.1.1
+collected 4 items
+
+tests\smoke\test_device_smoke.py ....                                    [100%]
+
+------ generated xml file: C:\qa-cicd-practice\reports\smoke_result.xml -------
+- Generated html report: file:///C:/qa-cicd-practice/reports/smoke_result.html -
+============================== 4 passed in 0.03s ==============================

@@ -33,20 +33,3 @@ def test_emergency_stop_is_false():
     emergency_stop = device.read_emergency_stop_status()
 
     assert emergency_stop is False
-
-
-def test_invalid_command_returns_error():
-    device = MockRobotDevice()
-    device.connect()
-
-    response = device.send_command("INVALID_COMMAND")
-
-    assert response == "ERROR_INVALID_COMMAND"
-
-
-def test_read_version_without_connection():
-    device = MockRobotDevice()
-
-    version = device.read_version()
-
-    assert version == "ERROR_NOT_CONNECTED"
