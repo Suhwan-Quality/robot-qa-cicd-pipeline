@@ -35,25 +35,40 @@ jobs:
           python --version | Out-File -FilePath logs/environment_info.txt -Encoding utf8
           python -m pip freeze | Out-File -FilePath logs/environment_info.txt -Append -Encoding utf8
 
-      - name: Run pytest automation tests
+      - name: Run Smoke Tests
         run: |
-          python -m pytest tests --junitxml=reports/result.xml --html=reports/result.html --self-contained-html *> logs/test_log.txt
-          if ($LASTEXITCODE -eq 0) {
-            "GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
-            exit 0
-          } else {
+          python -m pytest tests/smoke --junitxml=reports/smoke_result.xml --html=reports/smoke_result.html --self-contained-html *> logs/smoke_test_log.txt
+
+          if ($LASTEXITCODE -ne 0) {
             "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
             exit $LASTEXITCODE
           }
+
+      - name: Run Regression Tests
+        run: |
+          python -m pytest tests/regression --junitxml=reports/regression_result.xml --html=reports/regression_result.html --self-contained-html *> logs/regression_test_log.txt
+
+          if ($LASTEXITCODE -ne 0) {
+            "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+            exit $LASTEXITCODE
+          }
+
+      - name: Save Quality Gate Result
+        run: |
+          "GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
 
       - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qa-test-artifacts
+          if-no-files-found: warn
           path: |
-            reports/result.xml
-            reports/result.html
+            reports/smoke_result.xml
+            reports/smoke_result.html
+            reports/regression_result.xml
+            reports/regression_result.html
             reports/quality_gate.txt
-            logs/test_log.txt
+            logs/smoke_test_log.txt
+            logs/regression_test_log.txt
             logs/environment_info.txt
