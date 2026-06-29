@@ -1,0 +1,6 @@
+Quality Gate Result
+-------------------
+Total Test Cases: 3
+PASS Count: 3
+FAIL Count: 0
+Quality Gate: Go
