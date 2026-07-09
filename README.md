@@ -268,7 +268,129 @@ Regression Test 구성:
 
 Regression Test는 수정 또는 기능 변경 이후 기존 예외처리 로직이 깨지지 않았는지 확인하기 위한 회귀 검증 목적으로 구성했습니다.
 
+## 9-1. Parameterized Test & Shared Fixture Refactoring
+
+Day 2에서는 `pytest.mark.parametrize`를 활용하여 동일한 검증 로직을 여러 조건 데이터로 반복 실행할 수 있도록 테스트 구조를 개선했습니다.
+
+또한 테스트 파일 내부에 중복으로 정의되어 있던 fixture를 제거하고, `tests/conftest.py`에 정의된 공통 fixture를 사용하도록 정리했습니다.
+
+이를 통해 테스트 준비 코드와 실제 검증 로직을 분리하고, 테스트 코드의 재사용성과 유지보수성을 개선했습니다.
+
 ---
+
+### Updated Test Structure
+
+```text
+tests/
+ ├─ conftest.py
+ │   └─ Common robot_device fixture
+ │
+ ├─ test_parametrize_robot_device.py
+ │   └─ Parameterized motor status validation
+ │
+ ├─ smoke/
+ │   └─ test_device_smoke.py
+ │
+ └─ regression/
+     └─ test_device_regression.py
+```
+
+---
+
+### Test Scenario
+
+| Test Condition | Expected Result | QA Meaning |
+|---|---|---|
+| Device is not connected | `ERROR_NOT_CONNECTED` | 미연결 상태에서 모터 상태 조회 시 예외 응답 확인 |
+| Device is connected | `READY` | 연결 상태에서 모터 상태가 정상 준비 상태인지 확인 |
+
+---
+
+### Implemented Test
+
+```python
+@pytest.mark.parametrize(
+    "should_connect, expected_status",
+    [
+        (False, "ERROR_NOT_CONNECTED"),
+        (True, "READY"),
+    ]
+)
+def test_motor_status_by_connection_state(robot_device, should_connect, expected_status):
+    if should_connect:
+        robot_device.connect()
+
+    actual_status = robot_device.read_motor_status()
+
+    assert actual_status == expected_status
+```
+
+---
+
+### Validation Result
+
+Parameterized test execution:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest .\tests\test_parametrize_robot_device.py -v
+```
+
+Result:
+
+```text
+2 passed
+```
+
+Full pytest execution:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Result:
+
+```text
+17 passed
+```
+
+Local CI execution:
+
+```powershell
+.\run_ci.bat
+```
+
+Result:
+
+```text
+[RESULT] ALL TESTS PASSED
+[QUALITY GATE] GO
+```
+
+GitHub Actions result:
+
+```text
+Workflow: QA CI Pipeline
+Job: qa-test
+Status: Success
+Total duration: 35s
+Artifacts: 1
+```
+
+---
+
+### QA Engineering Point
+
+This update demonstrates a practical QA automation pattern where the same validation logic can be executed against multiple input conditions without duplicating test code.
+
+By using a shared fixture from `conftest.py`, the test environment setup is centralized, while each test file focuses only on validation logic.
+
+This structure improves:
+
+- Test code maintainability
+- Reusability of test setup
+- Scalability for additional test conditions
+- Regression test stability
+- CI/CD pipeline integration quality
 
 ## 10. 설치 및 실행 방법
 
@@ -328,7 +450,7 @@ python -m pytest tests -v
 정상 결과:
 
 ```text
-8 passed
+17 passed
 ```
 
 ---
