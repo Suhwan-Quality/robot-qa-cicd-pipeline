@@ -53,9 +53,42 @@ jobs:
             exit $LASTEXITCODE
           }
 
-      - name: Save Quality Gate Result
+      - name: Run Coverage Check
+        # GitHub Actions 화면에 표시될 단계 이름이다.
+        # 이 단계에서는 전체 테스트를 다시 실행하면서 app/device.py의 코드 커버리지를 측정한다.
         run: |
-          "GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+          # pytest-cov를 사용하여 tests 폴더 전체 테스트를 실행한다.
+          # --cov=app.device는 app/device.py 파일 기준으로 커버리지를 측정한다는 뜻이다.
+          # --cov-report=term-missing은 로그에 커버리지 표와 누락 라인을 출력한다.
+          # --cov-report=xml:reports/coverage.xml은 XML 형식의 coverage 결과 파일을 생성한다.
+          # --cov-report=html:reports/coverage_html은 사람이 볼 수 있는 HTML coverage report를 생성한다.
+          # --cov-fail-under=90은 커버리지가 90% 미만이면 이 단계를 실패 처리한다.
+          # *> logs/coverage_test_log.txt는 실행 로그를 coverage_test_log.txt 파일에 저장한다.
+          python -m pytest tests -v --cov=app.device --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=html:reports/coverage_html --cov-fail-under=90 *> logs/coverage_test_log.txt
+
+          # $LASTEXITCODE는 바로 위에서 실행한 pytest 명령어의 종료 결과값이다.
+          # 0이면 성공, 0이 아니면 실패를 의미한다.
+          # Coverage가 90% 미만이거나 테스트가 실패하면 pytest는 0이 아닌 값을 반환한다.
+          if ($LASTEXITCODE -ne 0) {
+            # Coverage Check 실패 시 Quality Gate 결과를 NO-GO로 저장한다.
+            "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+
+            # GitHub Actions job을 실패 상태로 종료한다.
+            exit $LASTEXITCODE
+          }
+
+      - name: Save Quality Gate Result
+        # Smoke, Regression, Coverage Check가 모두 통과한 경우에만 실행되는 단계이다.
+        # 앞 단계 중 하나라도 실패하면 workflow가 실패로 종료되기 때문에 여기까지 오지 못한다.
+        run: |
+          # Quality Gate 결과를 사람이 읽기 쉬운 형태로 파일에 저장한다.
+          "Quality Gate Result" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+          "-------------------" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
+          "Smoke Test: PASS" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
+          "Regression Test: PASS" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
+          "Coverage Threshold: 90%" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
+          "Coverage Result: PASS" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
+          "Quality Gate: GO" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
 
       - name: Upload test artifacts
         if: always()
@@ -71,4 +104,7 @@ jobs:
             reports/quality_gate.txt
             logs/smoke_test_log.txt
             logs/regression_test_log.txt
+            logs/coverage_test_log.txt
             logs/environment_info.txt
+            reports/coverage.xml
+            reports/coverage_html/**
