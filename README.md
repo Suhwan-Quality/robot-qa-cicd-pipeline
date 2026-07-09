@@ -593,6 +593,188 @@ QA 관점에서 Quality Gate는 릴리즈 또는 다음 검증 단계 진행 여
 
 ---
 
+## 14-1. Coverage-based Quality Gate Extension
+
+Day 3에서는 기존 Quality Gate 기준을 확장하여, 테스트 통과 여부뿐 아니라 코드 커버리지 기준까지 함께 검증하도록 개선했습니다.
+
+기존 Quality Gate는 Smoke Test와 Regression Test가 모두 통과하면 `GO`로 판단하는 구조였습니다.
+
+Day 3에서는 여기에 `pytest-cov` 기반 Coverage Check를 추가하여, `app/device.py` 기준 코드 커버리지가 90% 이상일 때만 Quality Gate가 `GO`가 되도록 확장했습니다.
+
+---
+
+### Updated Quality Gate Criteria
+
+| Condition | Quality Gate Result |
+|---|---|
+| Smoke Test PASS + Regression Test PASS + Coverage >= 90% | GO |
+| Smoke Test FAIL | NO-GO |
+| Regression Test FAIL | NO-GO |
+| Coverage < 90% | NO-GO |
+
+---
+
+### Coverage Target
+
+본 프로젝트에서는 학습용 Python 파일 전체가 아닌, 실제 테스트 대상 모듈인 `app/device.py`를 기준으로 Coverage를 측정했습니다.
+
+```text
+Coverage Target: app/device.py
+Coverage Threshold: 90%
+Actual Coverage: 93%
+```
+
+`app/python_basic_study/` 폴더는 Python 기초 학습용 코드이므로 Coverage 측정 대상에서 제외했습니다.
+
+---
+
+### Coverage Command
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests -v --cov=app.device --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+```
+
+Command Meaning:
+
+```text
+.\.venv\Scripts\python.exe
+→ 현재 프로젝트의 가상환경 Python을 사용한다.
+
+-m pytest
+→ Python에게 pytest 모듈을 실행하라고 지시한다.
+
+tests
+→ tests 폴더 안의 전체 테스트를 실행한다.
+
+-v
+→ 테스트 실행 결과를 자세히 출력한다.
+
+--cov=app.device
+→ app/device.py 파일 기준으로 코드 커버리지를 측정한다.
+
+--cov-report=term-missing
+→ 터미널에 커버리지 결과와 누락된 라인을 표시한다.
+
+--cov-report=xml:reports/coverage.xml
+→ coverage.xml 파일을 reports 폴더에 생성한다.
+```
+
+---
+
+### Coverage Validation Result
+
+Coverage 실행 결과 전체 테스트가 정상 통과했고, `app/device.py` 기준 93% Coverage를 확인했습니다.
+
+```text
+17 passed
+app/device.py Coverage: 93%
+Coverage XML written to reports/coverage.xml
+```
+
+Coverage Summary:
+
+```text
+Name           Stmts   Miss   Cover   Missing
+---------------------------------------------
+app/device.py    27      2     93%    29, 34
+---------------------------------------------
+TOTAL            27      2     93%
+```
+
+---
+
+### Local CI Pipeline Update
+
+`run_ci.bat`에 Coverage Check 단계를 추가하여, 로컬 CI에서도 Coverage 기준을 검증하도록 확장했습니다.
+
+Updated Local CI Flow:
+
+```text
+1. Install required packages
+2. Save environment information
+3. Run Smoke Tests
+4. Run Regression Tests
+5. Run Coverage Check
+6. Check Quality Gate
+```
+
+Local CI 실행 결과:
+
+```text
+[1/6] Install required packages
+[2/6] Save environment information
+[3/6] Run Smoke Tests
+[4/6] Run Regression Tests
+[5/6] Run Coverage Check
+[6/6] Check Quality Gate
+[RESULT] ALL TESTS PASSED
+[QUALITY GATE] GO
+```
+
+---
+
+### GitHub Actions CI Update
+
+GitHub Actions Workflow에도 Coverage Check 단계를 추가했습니다.
+
+이를 통해 GitHub에 코드가 push될 때마다 Smoke Test, Regression Test, Coverage Check가 자동으로 실행됩니다.
+
+Updated GitHub Actions Flow:
+
+```text
+1. Source Code Checkout
+2. Python 3.12 환경 구성
+3. requirements.txt 기반 패키지 설치
+4. reports / logs 폴더 생성
+5. 환경 정보 저장
+6. Smoke Test 실행
+7. Regression Test 실행
+8. Coverage Check 실행
+9. Quality Gate 결과 저장
+10. Artifact 업로드
+```
+
+GitHub Actions 실행 결과:
+
+```text
+Workflow: QA CI Pipeline
+Job: qa-test
+Status: Success
+Total Duration: 35s
+Artifacts: 1
+```
+
+---
+
+### Coverage Artifacts
+
+Coverage Check 실행 후 다음 산출물이 생성됩니다.
+
+| Artifact | Description |
+|---|---|
+| `logs/coverage_test_log.txt` | Coverage Check 실행 로그 |
+| `reports/coverage.xml` | CI 도구 연동용 XML Coverage Report |
+| `reports/coverage_html/` | 사람이 확인 가능한 HTML Coverage Report |
+| `reports/quality_gate.txt` | Smoke / Regression / Coverage 기준 기반 Quality Gate 결과 |
+
+---
+
+### QA Engineering Point
+
+이번 개선을 통해 단순히 테스트가 통과했는지만 확인하는 구조에서 벗어나, 코드 커버리지라는 정량 기준을 Quality Gate에 반영했습니다.
+
+QA 관점에서 의미는 다음과 같습니다.
+
+- 테스트 통과 여부와 코드 커버리지 기준을 함께 검증
+- Coverage 기준 미달 시 CI 실패 처리
+- Quality Gate 기준을 정량화
+- 테스트 결과, 로그, 커버리지 리포트를 Artifact로 보관
+- 수동 검증 경험을 CI 기반 자동 품질 검증 흐름으로 확장
+
+이를 통해 본 프로젝트는 단순 pytest 실행 예제가 아니라, Smoke / Regression / Coverage 기준을 포함한 CI Quality Gate 자동화 구조로 확장되었습니다.
+
+---
+
 ## 15. Python 기초 기반 QA 검증 로직 및 Quality Gate 확장
 
 본 프로젝트는 단순히 pytest와 GitHub Actions를 실행하는 것에서 끝나지 않고, Python 기초 문법을 기반으로 QA 검증 로직이 어떻게 구성되는지 단계적으로 확장했습니다.
