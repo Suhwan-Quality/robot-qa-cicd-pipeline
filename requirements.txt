@@ -1,3 +1,5 @@
 pytest
 pytest-html
 pytest-cov
+fastapi
+httpx
