@@ -248,3 +248,73 @@ def motor_status_check():
     return {
         "motor_status": motor_status
     }
+
+# ------------------------------------------------------------
+# GET /motor/status/not-connected API
+# ------------------------------------------------------------
+#
+# @app.get("/motor/status/not-connected")는
+# GET /motor/status/not-connected 요청이 들어왔을 때
+# 바로 아래 motor_status_without_connection_check() 함수를 실행하라는 의미이다.
+#
+# 이 함수는 어디에서 호출되는가?
+# - tests/regression/test_api_regression.py 파일에서
+#   client.get("/motor/status/not-connected")를 실행하면 호출된다.
+#
+# 왜 이 API를 만드는가?
+# - 장비가 연결되지 않은 상태에서 motor status를 요청했을 때
+#   기대한 예외 응답이 반환되는지 확인하기 위해서이다.
+#
+# 기존 MockRobotDevice 기준:
+# - device.connect()를 호출하지 않은 상태에서
+# - device.read_motor_status()를 호출하면
+# - "ERROR_NOT_CONNECTED"가 반환되어야 한다.
+#
+# QA 관점:
+# - 이 테스트는 정상 경로가 아니라 Negative Case / Regression Test이다.
+# - 기능 수정 후에도 미연결 상태 방어 로직이 깨지지 않았는지 확인하는 목적이다.
+@app.get("/motor/status/not-connected")
+def motor_status_without_connection_check():
+    # MockRobotDevice 객체를 생성한다.
+    #
+    # MockRobotDevice는 어디에 정의되어 있는가?
+    # - app/device.py 파일 안에 정의되어 있다.
+    #
+    # 왜 여기서 객체를 생성하는가?
+    # - API 호출 시점에 테스트용 장비 객체를 준비하기 위해서이다.
+    #
+    # 중요한 점:
+    # - 이번 테스트는 "미연결 상태"를 검증해야 하므로
+    #   device.connect()를 일부러 호출하지 않는다.
+    device = MockRobotDevice()
+
+    # device.read_motor_status()를 호출한다.
+    #
+    # read_motor_status()는 어디에 정의되어 있는가?
+    # - app/device.py 안의 MockRobotDevice 클래스에 정의되어 있다.
+    #
+    # 왜 호출하는가?
+    # - 미연결 상태에서 motor status를 읽었을 때
+    #   시스템이 어떤 응답을 주는지 확인하기 위해서이다.
+    #
+    # 왜 connect()를 호출하지 않는가?
+    # - 이번 테스트의 목적이 연결 성공 상태가 아니라
+    #   "연결되지 않은 상태의 예외 응답"을 확인하는 것이기 때문이다.
+    #
+    # 기대 결과:
+    # - "ERROR_NOT_CONNECTED"
+    motor_status = device.read_motor_status()
+
+    # API 응답 Body를 반환한다.
+    #
+    # FastAPI는 이 딕셔너리를 JSON 응답으로 변환한다.
+    #
+    # 실제 API JSON 응답 예:
+    # {
+    #   "motor_status": "ERROR_NOT_CONNECTED"
+    # }
+    #
+    # 테스트에서는 이 응답값이 기대값과 같은지 검증한다.
+    return {
+        "motor_status": motor_status
+    }
