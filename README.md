@@ -1,5 +1,5 @@
 # CI/CD 기반 QA 자동화 검증 환경 구축 실습  
-## Mock Robot Device Smoke & Regression Test Automation Project
+## Mock Robot Device Smoke / Regression / API Test Automation Project
 
 [![QA CI Pipeline](https://github.com/Suhwan-Quality/robot-qa-cicd-pipeline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Suhwan-Quality/robot-qa-cicd-pipeline/actions/workflows/ci.yml)
 
@@ -11,6 +11,8 @@
 
 초기에는 단일 테스트 파일 기반으로 테스트를 수행했으며, 이후 실무형 구조에 맞춰 `Smoke Test`와 `Regression Test`를 분리했습니다.
 
+이후 `fixture`, `conftest.py`, `parametrize`, `pytest-cov`, `FastAPI TestClient`를 단계적으로 적용하여 테스트 코드 재사용성, 조건 기반 반복 검증, Coverage 기반 Quality Gate, REST API 응답 검증까지 확장했습니다.
+
 본 프로젝트의 목적은 단순 테스트 코드 작성이 아니라, QA 관점에서 다음 흐름을 직접 구성하고 이해하는 것입니다.
 
 ```text
@@ -20,11 +22,17 @@
         ↓
 Smoke / Regression Test 분리
         ↓
+Mock Device 함수 검증
+        ↓
+REST API 응답 검증
+        ↓
 자동화 테스트 실행
         ↓
 Pass / Fail 판정
         ↓
-HTML / XML Report 생성
+Coverage Check
+        ↓
+HTML / XML / Coverage Report 생성
         ↓
 Log / Environment Info 저장
         ↓
@@ -45,28 +53,36 @@ Artifact 저장 및 결과 검토
 * Python / pytest 기반 자동화 테스트 구조 이해
 * Mock Device를 활용한 로봇/장비 검증 시나리오 구성
 * Smoke Test와 Regression Test 목적 분리
+* pytest fixture / conftest.py 기반 테스트 준비 코드 공통화
+* pytest.mark.parametrize 기반 조건별 반복 검증 구조 구성
+* FastAPI TestClient 기반 REST API Smoke / Regression Test 구성
+* HTTP Status Code와 JSON Response Body 기준 API 응답 검증
 * JUnit XML Report 및 HTML Test Report 생성
+* pytest-cov 기반 Coverage 측정 및 기준 미달 시 실패 처리
 * 테스트 실행 로그 및 환경 정보 저장
 * `run_ci.bat` 기반 Local CI Pipeline 구성
 * GitHub Actions 기반 CI Workflow 구성
-* 테스트 결과 기반 Quality Gate GO / NO-GO 판단 흐름 구현
+* 테스트 결과 및 Coverage 기준 기반 Quality Gate GO / NO-GO 판단 흐름 구현
 * CI 실패 로그 분석 및 Troubleshooting 경험 확보
 
 ---
 
 ## 3. 사용 기술
 
-| Category          | Tool / Technology                                   |
-| ----------------- | --------------------------------------------------- |
-| Language          | Python                                              |
-| Test Framework    | pytest                                              |
-| Test Report       | pytest-html, JUnit XML                              |
-| Local Execution   | Windows PowerShell, Batch Script                    |
-| Version Control   | Git                                                 |
-| Remote Repository | GitHub                                              |
-| CI Tool           | GitHub Actions                                      |
-| Artifact          | HTML Report, XML Report, Test Log, Environment Info |
-| Quality Gate      | GO / NO-GO text result                              |
+| Category          | Tool / Technology |
+| ----------------- | ----------------- |
+| Language          | Python |
+| Test Framework    | pytest, FastAPI TestClient |
+| API Framework     | FastAPI |
+| HTTP Client       | httpx |
+| Test Report       | pytest-html, JUnit XML |
+| Coverage          | pytest-cov |
+| Local Execution   | Windows PowerShell, Batch Script |
+| Version Control   | Git |
+| Remote Repository | GitHub |
+| CI Tool           | GitHub Actions |
+| Artifact          | HTML Report, XML Report, Test Log, Coverage Report, Environment Info |
+| Quality Gate      | Smoke / Regression / Coverage 기반 GO / NO-GO 판정 |
 
 ---
 
@@ -77,6 +93,7 @@ qa-cicd-practice/
  ├─ app/
  │   ├─ __init__.py
  │   ├─ device.py
+ │   ├─ api_server.py
  │   └─ python_basic_study/
  │       ├─ 01_python_basic.py
  │       ├─ 02_function_basic.py
@@ -87,22 +104,31 @@ qa-cicd-practice/
  │
  ├─ tests/
  │   ├─ __init__.py
+ │   ├─ conftest.py
+ │   ├─ test_fixture_basic.py
+ │   ├─ test_fixture_robot_device.py
+ │   ├─ test_parametrize_basic.py
+ │   ├─ test_parametrize_robot_device.py
  │   ├─ smoke/
- │   │   └─ test_device_smoke.py
+ │   │   ├─ test_device_smoke.py
+ │   │   └─ test_api_smoke.py
  │   └─ regression/
- │       └─ test_device_regression.py
+ │       ├─ test_device_regression.py
+ │       └─ test_api_regression.py
  │
  ├─ reports/
  │   ├─ smoke_result.xml
  │   ├─ smoke_result.html
  │   ├─ regression_result.xml
  │   ├─ regression_result.html
- │   ├─ quality_gate.txt
- │   └─ quality_gate_basic.txt
+ │   ├─ coverage.xml
+ │   ├─ coverage_html/
+ │   └─ quality_gate.txt
  │
  ├─ logs/
  │   ├─ smoke_test_log.txt
  │   ├─ regression_test_log.txt
+ │   ├─ coverage_test_log.txt
  │   └─ environment_info.txt
  │
  ├─ .github/
@@ -176,12 +202,12 @@ def test_device_connection():
 
 각 코드의 의미는 다음과 같습니다.
 
-| Code                                     | Meaning                                             |
-| ---------------------------------------- | --------------------------------------------------- |
-| `from app.device import MockRobotDevice` | 테스트 대상 Mock Device를 불러옴                             |
-| `device = MockRobotDevice()`             | 테스트 대상 장비 객체 생성                                     |
-| `result = device.connect()`              | 테스트 Step 실행                                         |
-| `assert result == "CONNECTED"`           | Expected Result와 Actual Result를 비교하여 Pass / Fail 판정 |
+| Code | Meaning |
+| ---- | ------- |
+| `from app.device import MockRobotDevice` | 테스트 대상 Mock Device를 불러옴 |
+| `device = MockRobotDevice()` | 테스트 대상 장비 객체 생성 |
+| `result = device.connect()` | 테스트 Step 실행 |
+| `assert result == "CONNECTED"` | Expected Result와 Actual Result를 비교하여 Pass / Fail 판정 |
 
 QA 문서 관점으로 보면 다음과 같습니다.
 
@@ -208,7 +234,7 @@ Pass / Fail:
 
 Smoke Test는 빌드가 기본적으로 검증 가능한 상태인지 빠르게 판단하기 위한 테스트입니다.
 
-본 프로젝트에서는 다음 항목을 Smoke Test로 구성했습니다.
+본 프로젝트에서는 다음 항목을 Device Smoke Test로 구성했습니다.
 
 ```text
 1. Device Connection Test
@@ -225,12 +251,12 @@ tests/smoke/test_device_smoke.py
 
 Smoke Test 구성:
 
-| Test Case                            | Description                 | QA Meaning        |
-| ------------------------------------ | --------------------------- | ----------------- |
-| `test_device_connection`             | Mock Robot Device 연결 상태 확인  | 장비 연결 가능 여부 확인    |
-| `test_read_version_after_connection` | 연결 후 SW Version 정상 조회 확인    | SW 버전 확인 가능 여부 검증 |
-| `test_motor_status_is_ready`         | Motor Status가 READY 상태인지 확인 | 기본 구동 준비 상태 확인    |
-| `test_emergency_stop_is_false`       | E-Stop 기본 상태가 False인지 확인    | 비상정지 상태 기본값 확인    |
+| Test Case | Description | QA Meaning |
+| --------- | ----------- | ---------- |
+| `test_device_connection` | Mock Robot Device 연결 상태 확인 | 장비 연결 가능 여부 확인 |
+| `test_read_version_after_connection` | 연결 후 SW Version 정상 조회 확인 | SW 버전 확인 가능 여부 검증 |
+| `test_motor_status_is_ready` | Motor Status가 READY 상태인지 확인 | 기본 구동 준비 상태 확인 |
+| `test_emergency_stop_is_false` | E-Stop 기본 상태가 False인지 확인 | 비상정지 상태 기본값 확인 |
 
 Smoke Test가 실패하면 시스템이 기본 검증 가능한 상태가 아니라고 판단할 수 있습니다.
 
@@ -242,7 +268,7 @@ Smoke Test가 실패하면 시스템이 기본 검증 가능한 상태가 아니
 
 Regression Test는 기존 기능 및 예외처리 동작이 수정 후에도 유지되는지 확인하기 위한 테스트입니다.
 
-본 프로젝트에서는 다음 항목을 Regression Test로 구성했습니다.
+본 프로젝트에서는 다음 항목을 Device Regression Test로 구성했습니다.
 
 ```text
 1. Invalid Command Error Response Test
@@ -259,14 +285,16 @@ tests/regression/test_device_regression.py
 
 Regression Test 구성:
 
-| Test Case                                       | Description                             | QA Meaning          |
-| ----------------------------------------------- | --------------------------------------- | ------------------- |
-| `test_invalid_command_returns_error`            | 비정상 명령 입력 시 Error Code 반환 확인            | 잘못된 명령에 대한 예외처리 검증  |
-| `test_read_version_without_connection`          | 미연결 상태에서 Version 조회 시 Error 반환 확인       | 연결 전 기능 호출 방어 로직 검증 |
-| `test_motor_status_without_connection`          | 미연결 상태에서 Motor Status 조회 시 Error 반환 확인  | 미연결 상태 예외처리 검증      |
-| `test_emergency_stop_status_without_connection` | 미연결 상태에서 E-Stop Status 조회 시 Error 반환 확인 | 미연결 상태 안전 응답 검증     |
+| Test Case | Description | QA Meaning |
+| --------- | ----------- | ---------- |
+| `test_invalid_command_returns_error` | 비정상 명령 입력 시 Error Code 반환 확인 | 잘못된 명령에 대한 예외처리 검증 |
+| `test_read_version_without_connection` | 미연결 상태에서 Version 조회 시 Error 반환 확인 | 연결 전 기능 호출 방어 로직 검증 |
+| `test_motor_status_without_connection` | 미연결 상태에서 Motor Status 조회 시 Error 반환 확인 | 미연결 상태 예외처리 검증 |
+| `test_emergency_stop_status_without_connection` | 미연결 상태에서 E-Stop Status 조회 시 Error 반환 확인 | 미연결 상태 안전 응답 검증 |
 
 Regression Test는 수정 또는 기능 변경 이후 기존 예외처리 로직이 깨지지 않았는지 확인하기 위한 회귀 검증 목적으로 구성했습니다.
+
+---
 
 ## 9-1. Parameterized Test & Shared Fixture Refactoring
 
@@ -289,10 +317,12 @@ tests/
  │   └─ Parameterized motor status validation
  │
  ├─ smoke/
- │   └─ test_device_smoke.py
+ │   ├─ test_device_smoke.py
+ │   └─ test_api_smoke.py
  │
  └─ regression/
-     └─ test_device_regression.py
+     ├─ test_device_regression.py
+     └─ test_api_regression.py
 ```
 
 ---
@@ -341,7 +371,7 @@ Result:
 2 passed
 ```
 
-Full pytest execution:
+Full pytest execution after Day 2:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v
@@ -372,7 +402,6 @@ GitHub Actions result:
 Workflow: QA CI Pipeline
 Job: qa-test
 Status: Success
-Total duration: 35s
 Artifacts: 1
 ```
 
@@ -391,6 +420,239 @@ This structure improves:
 - Scalability for additional test conditions
 - Regression test stability
 - CI/CD pipeline integration quality
+
+---
+
+## 9-2. REST API Smoke & Regression Test Automation
+
+Day 4에서는 기존 `MockRobotDevice` 함수 직접 호출 기반 테스트 구조를 REST API 응답 검증 구조로 확장했습니다.
+
+기존 구조에서는 pytest 테스트 코드가 `MockRobotDevice` 객체를 직접 생성하고, `connect()`, `read_motor_status()` 같은 함수를 직접 호출하여 결과를 검증했습니다.
+
+API 자동화 확장 이후에는 FastAPI 기반 `Mock Robot API Server`를 구성하고, pytest 테스트 코드에서는 FastAPI `TestClient`를 사용하여 실제 서버 실행 없이 API endpoint를 호출하고 응답을 검증하도록 구성했습니다.
+
+---
+
+### API Automation Purpose
+
+API 자동화 테스트를 추가한 목적은 다음과 같습니다.
+
+- 기존 Mock Device 검증 로직을 REST API 형태로 확장
+- HTTP Status Code와 JSON Response Body 기준 검증
+- 서버 / 장비 제어 API의 기본 상태 확인 자동화
+- 정상 응답과 예외 응답을 Smoke / Regression Test로 분리
+- 기존 Local CI 및 GitHub Actions Pipeline에 API Test를 자연스럽게 통합
+
+---
+
+### Mock Robot API Server
+
+API 서버 파일 위치:
+
+```text
+app/api_server.py
+```
+
+`app/api_server.py`는 FastAPI 기반 Mock Robot API Server 역할을 합니다.
+
+이 파일에서는 기존 `app/device.py`에 정의된 `MockRobotDevice`를 API 내부에서 호출하고, 그 결과를 JSON 응답으로 반환합니다.
+
+구성된 API endpoint는 다음과 같습니다.
+
+| Method | Endpoint | Test Type | Expected Response | QA Meaning |
+|---|---|---|---|---|
+| GET | `/health` | Smoke | `{"status": "ok"}` | API 서버 기본 상태 확인 |
+| GET | `/version` | Smoke | `{"version": "1.0.0"}` | 테스트 대상 SW / API 버전 확인 |
+| GET | `/motor/status` | Smoke | `{"motor_status": "READY"}` | 연결 상태의 모터 준비 상태 확인 |
+| GET | `/motor/status/not-connected` | Regression | `{"motor_status": "ERROR_NOT_CONNECTED"}` | 미연결 상태 예외 응답 검증 |
+
+---
+
+### API Smoke Test
+
+API Smoke Test 파일 위치:
+
+```text
+tests/smoke/test_api_smoke.py
+```
+
+API Smoke Test에서는 정상 응답 중심의 기본 API 동작을 검증합니다.
+
+검증 항목은 다음과 같습니다.
+
+| Test Case | API | Verification |
+|---|---|---|
+| `test_health_api_returns_ok` | GET `/health` | Status Code 200 + Body `{"status": "ok"}` |
+| `test_version_api_returns_version` | GET `/version` | Status Code 200 + Body `{"version": "1.0.0"}` |
+| `test_motor_status_api_returns_ready` | GET `/motor/status` | Status Code 200 + Body `{"motor_status": "READY"}` |
+
+실행 명령어:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest .\tests\smoke\test_api_smoke.py -v
+```
+
+실행 결과:
+
+```text
+3 passed
+```
+
+---
+
+### API Regression Test
+
+API Regression Test 파일 위치:
+
+```text
+tests/regression/test_api_regression.py
+```
+
+API Regression Test에서는 기존 예외처리 로직이 유지되는지 검증합니다.
+
+검증 항목은 다음과 같습니다.
+
+| Test Case | API | Verification |
+|---|---|---|
+| `test_motor_status_api_without_connection_returns_error` | GET `/motor/status/not-connected` | Status Code 200 + Body `{"motor_status": "ERROR_NOT_CONNECTED"}` |
+
+이 테스트는 장비를 연결하지 않은 상태에서 motor status를 조회했을 때, 정상 상태인 `READY`가 아니라 `ERROR_NOT_CONNECTED`가 반환되는지 검증합니다.
+
+실행 명령어:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest .\tests\regression\test_api_regression.py -v
+```
+
+실행 결과:
+
+```text
+1 passed
+```
+
+---
+
+### FastAPI TestClient 사용 이유
+
+본 프로젝트에서는 FastAPI의 `TestClient`를 사용했습니다.
+
+`TestClient`는 실제 API 서버를 따로 실행하지 않아도, FastAPI `app` 객체에 등록된 API endpoint를 pytest 코드 안에서 호출할 수 있게 해주는 테스트용 클라이언트입니다.
+
+즉, 사람이 Postman이나 브라우저로 API를 직접 호출하는 대신, pytest 자동화 코드가 아래와 같은 방식으로 API를 호출합니다.
+
+```python
+response = client.get("/health")
+```
+
+검증 기준은 다음과 같습니다.
+
+```python
+assert response.status_code == 200
+assert response.json() == {"status": "ok"}
+```
+
+QA 관점에서 이는 다음 흐름을 자동화한 것입니다.
+
+```text
+API Request
+        ↓
+HTTP Status Code 확인
+        ↓
+JSON Response Body 확인
+        ↓
+Expected Result와 Actual Result 비교
+        ↓
+PASS / FAIL 판정
+```
+
+---
+
+### API Call Flow Example
+
+`GET /motor/status/not-connected` Regression Test의 호출 흐름은 다음과 같습니다.
+
+```text
+pytest 실행
+        ↓
+test_motor_status_api_without_connection_returns_error() 실행
+        ↓
+client.get("/motor/status/not-connected") 호출
+        ↓
+FastAPI app의 @app.get("/motor/status/not-connected") 라우팅 매칭
+        ↓
+motor_status_without_connection_check() 실행
+        ↓
+MockRobotDevice() 생성
+        ↓
+device.connect()는 호출하지 않음
+        ↓
+device.read_motor_status() 호출
+        ↓
+"ERROR_NOT_CONNECTED" 반환
+        ↓
+{"motor_status": "ERROR_NOT_CONNECTED"} JSON 응답 생성
+        ↓
+pytest assert로 Status Code와 Response Body 검증
+        ↓
+PASS
+```
+
+---
+
+### API Test Validation Result
+
+API 자동화 테스트 추가 후 전체 테스트 결과는 다음과 같습니다.
+
+```text
+21 passed
+```
+
+구성은 다음과 같습니다.
+
+```text
+Device Smoke Test: 4
+API Smoke Test: 3
+Device Regression Test: 4
+API Regression Test: 1
+Fixture / Parametrize Test: 9
+Total: 21
+```
+
+Local CI 실행 결과:
+
+```text
+[RESULT] ALL TESTS PASSED
+[QUALITY GATE] GO
+```
+
+GitHub Actions 실행 결과:
+
+```text
+Workflow: QA CI Pipeline
+Job: qa-test
+Status: Success
+Artifacts: 1
+```
+
+---
+
+### QA Engineering Point
+
+이번 API 자동화 확장을 통해 기존 함수 직접 호출 기반 검증에서 REST API 응답 검증 구조로 테스트 범위를 확장했습니다.
+
+QA 관점에서 의미는 다음과 같습니다.
+
+- Mock Device 내부 함수 검증을 API 응답 검증으로 확장
+- HTTP Status Code와 JSON Body 기준으로 Expected / Actual 비교
+- 정상 응답은 Smoke Test로 구성
+- 미연결 상태 예외 응답은 Regression Test로 구성
+- 실제 서버 실행 없이 FastAPI TestClient로 API 자동화 검증
+- 기존 Local CI / GitHub Actions Pipeline에 API Test 자동 포함
+- 장비 / 서버 / 제어 SW의 Health, Version, Status API 검증 구조로 확장 가능
+
+이를 통해 본 프로젝트는 단순 Mock Device pytest 검증에서 나아가, REST API 기반 Smoke / Regression Test 자동화 구조까지 포함하는 QA 자동화 포트폴리오로 확장되었습니다.
+
+---
 
 ## 10. 설치 및 실행 방법
 
@@ -435,6 +697,9 @@ python -m pip install -r requirements.txt
 ```text
 pytest
 pytest-html
+pytest-cov
+fastapi
+httpx
 ```
 
 ---
@@ -450,7 +715,7 @@ python -m pytest tests -v
 정상 결과:
 
 ```text
-17 passed
+21 passed
 ```
 
 ---
@@ -464,7 +729,14 @@ python -m pytest tests\smoke -v
 정상 결과:
 
 ```text
-4 passed
+7 passed
+```
+
+Smoke Test 구성:
+
+```text
+Device Smoke Test: 4
+API Smoke Test: 3
 ```
 
 ---
@@ -478,7 +750,42 @@ python -m pytest tests\regression -v
 정상 결과:
 
 ```text
-4 passed
+5 passed
+```
+
+Regression Test 구성:
+
+```text
+Device Regression Test: 4
+API Regression Test: 1
+```
+
+---
+
+### 11-4. API Smoke Test만 실행
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest .\tests\smoke\test_api_smoke.py -v
+```
+
+정상 결과:
+
+```text
+3 passed
+```
+
+---
+
+### 11-5. API Regression Test만 실행
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest .\tests\regression\test_api_regression.py -v
+```
+
+정상 결과:
+
+```text
+1 passed
 ```
 
 ---
@@ -532,17 +839,19 @@ Local CI Pipeline 실행 명령어:
 2. Save environment information
 3. Run Smoke Tests
 4. Run Regression Tests
-5. Check Quality Gate
+5. Run Coverage Check
+6. Check Quality Gate
 ```
 
 정상 실행 결과:
 
 ```text
-[1/5] Install required packages
-[2/5] Save environment information
-[3/5] Run Smoke Tests
-[4/5] Run Regression Tests
-[5/5] Check Quality Gate
+[1/6] Install required packages
+[2/6] Save environment information
+[3/6] Run Smoke Tests
+[4/6] Run Regression Tests
+[5/6] Run Coverage Check
+[6/6] Check Quality Gate
 [RESULT] ALL TESTS PASSED
 [QUALITY GATE] GO
 ```
@@ -555,13 +864,18 @@ reports/
  ├─ smoke_result.xml
  ├─ regression_result.html
  ├─ regression_result.xml
+ ├─ coverage.xml
+ ├─ coverage_html/
  └─ quality_gate.txt
 
 logs/
  ├─ smoke_test_log.txt
  ├─ regression_test_log.txt
+ ├─ coverage_test_log.txt
  └─ environment_info.txt
 ```
+
+QA 관점에서 `run_ci.bat`는 로컬 환경에서 Smoke Test, Regression Test, Coverage Check를 한 번에 실행하고, Quality Gate 결과를 확인하기 위한 Local CI Script 역할을 합니다.
 
 ---
 
@@ -569,7 +883,9 @@ logs/
 
 Quality Gate는 테스트 결과를 기준으로 다음 단계 진행 여부를 판단하는 기준입니다.
 
-본 프로젝트에서는 테스트 결과에 따라 `reports/quality_gate.txt` 파일에 다음 결과를 저장합니다.
+본 프로젝트에서는 Smoke Test, Regression Test, Coverage Check 결과를 종합하여 `GO` 또는 `NO-GO`를 판단합니다.
+
+Quality Gate 결과는 `reports/quality_gate.txt` 파일에 저장됩니다.
 
 ```text
 GO
@@ -581,15 +897,18 @@ GO
 NO-GO
 ```
 
-판정 기준은 다음과 같습니다.
+최신 Quality Gate 판정 기준은 다음과 같습니다.
 
-| Condition                              | Quality Gate Result |
-| -------------------------------------- | ------------------- |
-| Smoke Test Pass + Regression Test Pass | GO                  |
-| Smoke Test Fail                        | NO-GO               |
-| Regression Test Fail                   | NO-GO               |
+| Condition | Quality Gate Result |
+|---|---|
+| Smoke Test PASS + Regression Test PASS + Coverage >= 90% | GO |
+| Smoke Test FAIL | NO-GO |
+| Regression Test FAIL | NO-GO |
+| Coverage < 90% | NO-GO |
 
 QA 관점에서 Quality Gate는 릴리즈 또는 다음 검증 단계 진행 여부를 판단하는 기준으로 활용할 수 있습니다.
+
+본 프로젝트에서는 단순 테스트 실행 결과뿐 아니라 Coverage 기준까지 포함하여, 정량 품질 기준 기반의 GO / NO-GO 판정 구조로 확장했습니다.
 
 ---
 
@@ -666,7 +985,7 @@ tests
 Coverage 실행 결과 전체 테스트가 정상 통과했고, `app/device.py` 기준 93% Coverage를 확인했습니다.
 
 ```text
-17 passed
+21 passed
 app/device.py Coverage: 93%
 Coverage XML written to reports/coverage.xml
 ```
@@ -740,7 +1059,6 @@ GitHub Actions 실행 결과:
 Workflow: QA CI Pipeline
 Job: qa-test
 Status: Success
-Total Duration: 35s
 Artifacts: 1
 ```
 
@@ -1069,7 +1387,7 @@ git push
 
 본 프로젝트는 GitHub Actions를 활용하여 `main` branch에 push가 발생하거나 Pull Request가 생성될 때 자동으로 QA 테스트가 실행되도록 구성했습니다.
 
-GitHub Actions CI Workflow는 `.github/workflows/ci.yml` 파일에 정의되어 있으며, 로컬에서 구성한 `Smoke Test → Regression Test → Quality Gate` 흐름과 동일한 구조로 동작하도록 개선했습니다.
+GitHub Actions CI Workflow는 `.github/workflows/ci.yml` 파일에 정의되어 있으며, 로컬에서 구성한 `Smoke Test → Regression Test → Coverage Check → Quality Gate` 흐름과 동일한 구조로 동작하도록 개선했습니다.
 
 ---
 
@@ -1083,10 +1401,11 @@ GitHub Actions CI Workflow는 `.github/workflows/ci.yml` 파일에 정의되어 
 5. 환경 정보 저장
 6. Smoke Test 실행
 7. Regression Test 실행
-8. Quality Gate 결과 저장
-9. HTML / XML Report 생성
-10. 테스트 실행 로그 저장
-11. Artifact 업로드
+8. Coverage Check 실행
+9. Quality Gate 결과 저장
+10. HTML / XML / Coverage Report 생성
+11. 테스트 실행 로그 저장
+12. Artifact 업로드
 ```
 
 ---
@@ -1116,7 +1435,6 @@ GitHub Actions 실행 결과 `qa-test` Job이 정상 완료되었습니다.
 Workflow: QA CI Pipeline
 Job: qa-test
 Status: Success
-Total Duration: 47s
 Artifact Name: qa-test-artifacts
 ```
 
@@ -1131,6 +1449,7 @@ Create report and log folders
 Save environment information
 Run Smoke Tests
 Run Regression Tests
+Run Coverage Check
 Save Quality Gate Result
 Upload test artifacts
 Complete job
@@ -1142,16 +1461,19 @@ Complete job
 
 GitHub Actions 실행 후 다음 산출물이 `qa-test-artifacts`로 저장됩니다.
 
-| Artifact                         | Description                             |
-| -------------------------------- | --------------------------------------- |
-| `reports/smoke_result.xml`       | Smoke Test 결과를 담은 JUnit XML Report      |
-| `reports/smoke_result.html`      | 사람이 확인 가능한 Smoke Test HTML Report       |
-| `reports/regression_result.xml`  | Regression Test 결과를 담은 JUnit XML Report |
-| `reports/regression_result.html` | 사람이 확인 가능한 Regression Test HTML Report  |
-| `reports/quality_gate.txt`       | 테스트 결과 기반 GO / NO-GO 판정 결과              |
-| `logs/smoke_test_log.txt`        | Smoke Test 실행 로그                        |
-| `logs/regression_test_log.txt`   | Regression Test 실행 로그                   |
-| `logs/environment_info.txt`      | Python 및 패키지 버전 정보                      |
+| Artifact | Description |
+| -------- | ----------- |
+| `reports/smoke_result.xml` | Smoke Test 결과를 담은 JUnit XML Report |
+| `reports/smoke_result.html` | 사람이 확인 가능한 Smoke Test HTML Report |
+| `reports/regression_result.xml` | Regression Test 결과를 담은 JUnit XML Report |
+| `reports/regression_result.html` | 사람이 확인 가능한 Regression Test HTML Report |
+| `reports/coverage.xml` | Coverage 결과를 담은 XML Report |
+| `reports/coverage_html/` | 사람이 확인 가능한 HTML Coverage Report |
+| `reports/quality_gate.txt` | 테스트 결과 기반 GO / NO-GO 판정 결과 |
+| `logs/smoke_test_log.txt` | Smoke Test 실행 로그 |
+| `logs/regression_test_log.txt` | Regression Test 실행 로그 |
+| `logs/coverage_test_log.txt` | Coverage Check 실행 로그 |
+| `logs/environment_info.txt` | Python 및 패키지 버전 정보 |
 
 ---
 
@@ -1264,7 +1586,7 @@ Upload test artifacts
 
 ## 19. 실제 서버 / 장비 연동 시 확장 구조
 
-현재 프로젝트는 Mock Device 기반으로 구성되어 있지만, 실제 실무에서는 서버 또는 장비와 연동하여 동일한 구조로 확장할 수 있습니다.
+현재 프로젝트는 Mock Device와 Mock API Server 기반으로 구성되어 있지만, 실제 실무에서는 서버 또는 장비와 연동하여 동일한 구조로 확장할 수 있습니다.
 
 예상 확장 구조는 다음과 같습니다.
 
@@ -1283,6 +1605,8 @@ Regression Test 실행
         ↓
 주요 기능 및 예외처리 검증
         ↓
+Coverage Check
+        ↓
 Log / Report / Artifact 저장
         ↓
 Quality Gate GO / NO-GO 판단
@@ -1294,7 +1618,7 @@ Jira 또는 Issue Tracker에 실패 결과 등록
 
 ### 실제 서버 연동 예시
 
-실제 서버와 연동할 경우 Mock Device 대신 API Client를 사용할 수 있습니다.
+실제 서버와 연동할 경우 Mock Device 또는 Mock API Server 대신 API Client를 사용할 수 있습니다.
 
 예시 구조:
 
@@ -1312,13 +1636,13 @@ tests/
 
 검증 항목 예시:
 
-| Test Type       | Example                           |
-| --------------- | --------------------------------- |
-| Smoke Test      | 서버 Health Check                   |
-| Smoke Test      | Version API 응답 확인                 |
-| Smoke Test      | 로그인 또는 인증 기본 동작 확인                |
-| Regression Test | 비정상 요청 Error Response 확인          |
-| Regression Test | 기존 API 응답 구조 유지 확인                |
+| Test Type | Example |
+| --------- | ------- |
+| Smoke Test | 서버 Health Check |
+| Smoke Test | Version API 응답 확인 |
+| Smoke Test | 로그인 또는 인증 기본 동작 확인 |
+| Regression Test | 비정상 요청 Error Response 확인 |
+| Regression Test | 기존 API 응답 구조 유지 확인 |
 | Regression Test | Timeout / Invalid Parameter 처리 확인 |
 
 ---
@@ -1327,15 +1651,15 @@ tests/
 
 로봇 또는 임베디드 장비와 연동할 경우 다음 항목을 테스트할 수 있습니다.
 
-| Test Type       | Example                   |
-| --------------- | ------------------------- |
-| Smoke Test      | 장비 연결 확인                  |
-| Smoke Test      | Firmware / SW Version 조회  |
-| Smoke Test      | Motor / Sensor 기본 상태 확인   |
-| Smoke Test      | E-Stop 상태 확인              |
+| Test Type | Example |
+| --------- | ------- |
+| Smoke Test | 장비 연결 확인 |
+| Smoke Test | Firmware / SW Version 조회 |
+| Smoke Test | Motor / Sensor 기본 상태 확인 |
+| Smoke Test | E-Stop 상태 확인 |
 | Regression Test | 비정상 명령 입력 시 Error Code 확인 |
-| Regression Test | 통신 끊김 상태에서의 예외처리 확인       |
-| Regression Test | 장비 상태 전환 후 기존 기능 유지 확인    |
+| Regression Test | 통신 끊김 상태에서의 예외처리 확인 |
+| Regression Test | 장비 상태 전환 후 기존 기능 유지 확인 |
 
 실제 장비 연동 시에는 USB, Serial, CAN, Ethernet, REST API, Socket 통신 등 프로젝트 환경에 맞는 통신 방식을 사용할 수 있습니다.
 
@@ -1350,15 +1674,21 @@ tests/
         ↓
 Smoke / Regression Test Suite 분리
         ↓
+Fixture / Parametrize 기반 테스트 구조 개선
+        ↓
+REST API Smoke / Regression Test 확장
+        ↓
 로컬 테스트 실행
         ↓
 Local CI Pipeline 구성
+        ↓
+Coverage 기반 Quality Gate 확장
         ↓
 GitHub Repository 연동
         ↓
 GitHub Actions CI 자동 실행
         ↓
-HTML / XML Report 생성
+HTML / XML / Coverage Report 생성
         ↓
 Log / Environment Info Artifact 저장
         ↓
@@ -1371,11 +1701,9 @@ Quality Gate GO / NO-GO 판단
 
 * 실제 장비 또는 서버 API와 연동한 Smoke Test 수행
 * 빌드 산출물 배포 후 자동 테스트 실행
-* 테스트 결과 기반 Release GO / NO-GO 판단
+* 테스트 결과 및 Coverage 기준 기반 Release GO / NO-GO 판단
 * 실패 로그 기반 원인 분석 및 이슈 등록
 * Jenkins, GitLab CI, GitHub Actions 등 CI 도구와 연동
 * Test Report 및 Artifact를 품질 증적으로 보관
 
-본 프로젝트는 QA Engineer 관점에서 CI/CD 환경의 테스트 실행 구조, 리포트 생성, 로그 관리, Artifact 저장, Quality Gate 운영 개념을 이해하고 실습하기 위해 구성했습니다.
-
-
+본 프로젝트는 QA Engineer 관점에서 CI/CD 환경의 테스트 실행 구조, 리포트 생성, 로그 관리, Artifact 저장, Coverage 기준 관리, Quality Gate 운영 개념을 이해하고 실습하기 위해 구성했습니다.
