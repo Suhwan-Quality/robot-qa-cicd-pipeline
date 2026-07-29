@@ -1707,3 +1707,258 @@ Quality Gate GO / NO-GO 판단
 * Test Report 및 Artifact를 품질 증적으로 보관
 
 본 프로젝트는 QA Engineer 관점에서 CI/CD 환경의 테스트 실행 구조, 리포트 생성, 로그 관리, Artifact 저장, Coverage 기준 관리, Quality Gate 운영 개념을 이해하고 실습하기 위해 구성했습니다.
+
+---
+
+## 21. FastAPI Web Login Demo 및 Playwright Web E2E Test 확장
+
+본 프로젝트는 기존 `Mock Robot Device` 및 `FastAPI TestClient` 기반 API 자동화 검증 구조에 더해, 실제 URL에 접속하여 브라우저 화면을 검증하는 Playwright Web E2E 테스트를 추가로 구현했습니다.
+
+기존 API 테스트는 FastAPI `TestClient`를 사용하여 실제 서버 실행 없이 API 응답을 검증하는 구조였습니다.
+
+이번 Web E2E 확장에서는 FastAPI Form 기반의 실제 로그인 화면을 구성하고, Playwright를 사용하여 브라우저에서 사용자가 직접 수행하는 흐름과 동일하게 로그인 페이지 접속, 입력, 클릭, 결과 화면 확인을 자동화했습니다.
+
+---
+
+### 21-1. Web Demo 구현 목적
+
+Web Demo를 추가한 목적은 다음과 같습니다.
+
+- API 응답 검증에서 실제 브라우저 기반 화면 검증으로 테스트 범위 확장
+- 로그인 Form 기반의 정상 / 비정상 시나리오 구성
+- Playwright를 활용한 실제 URL E2E 자동화 테스트 구현
+- 사용자의 입력, 버튼 클릭, 화면 전환, 오류 메시지 표시 여부 검증
+- 기존 QA 검증 경험을 Web / API 자동화 포트폴리오로 확장
+
+---
+
+### 21-2. 추가된 파일 구조
+
+이번 Web E2E 확장에서 추가된 주요 파일은 다음과 같습니다.
+
+```text
+app/
+ └─ web_demo.py
+
+tests/
+ └─ web_ui/
+     └─ smoke/
+         └─ test_login_e2e.py
+```
+
+---
+
+### 21-3. FastAPI Web Demo
+
+Web Demo 파일 위치:
+
+```text
+app/web_demo.py
+```
+
+`app/web_demo.py`는 FastAPI 기반의 간단한 로그인 Web Demo 역할을 합니다.
+
+구성된 화면과 동작은 다음과 같습니다.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/login` | 로그인 페이지 표시 |
+| POST | `/login` | 이메일 / 비밀번호 입력값 검증 |
+| Success | `/login` POST 결과 | Dashboard 화면 표시 |
+| Failure | `/login` POST 결과 | Login Failed 및 오류 메시지 표시 |
+
+정상 로그인 계정은 다음과 같습니다.
+
+```text
+Email: qa@example.com
+Password: Password123!
+```
+
+정상 로그인 시 기대 결과:
+
+```text
+Dashboard
+Welcome, QA User
+```
+
+비정상 로그인 시 기대 결과:
+
+```text
+Login Failed
+Invalid email or password
+Back to Login
+```
+
+---
+
+### 21-4. FastAPI 서버 실행 방법
+
+Playwright Web E2E 테스트는 실제 URL에 접속하는 구조이므로, 테스트 실행 전에 FastAPI 서버를 먼저 실행해야 합니다.
+
+실행 명령어:
+
+```powershell
+python -m uvicorn app.web_demo:app --reload
+```
+
+서버 실행 후 브라우저에서 다음 URL에 접속합니다.
+
+```text
+http://127.0.0.1:8000/login
+```
+
+정상적으로 실행되면 로그인 페이지가 표시됩니다.
+
+---
+
+### 21-5. Playwright Web E2E Test
+
+Playwright 테스트 파일 위치:
+
+```text
+tests/web_ui/smoke/test_login_e2e.py
+```
+
+구현한 Playwright E2E 테스트는 다음 3개입니다.
+
+| Test Case | Description | Expected Result |
+|---|---|---|
+| `test_login_page_is_displayed` | 로그인 페이지 표시 확인 | Login 제목, Email / Password 입력창, Submit 버튼 표시 |
+| `test_login_success` | 정상 계정 로그인 | Dashboard 및 Welcome 문구 표시 |
+| `test_login_failure` | 잘못된 비밀번호 로그인 | Login Failed 및 Invalid email or password 문구 표시 |
+
+---
+
+### 21-6. Playwright 테스트 실행 방법
+
+FastAPI 서버가 실행 중인 상태에서 별도 PowerShell 창을 열고 다음 명령어를 실행합니다.
+
+```powershell
+python -m pytest tests\web_ui\smoke\test_login_e2e.py -v
+```
+
+정상 실행 결과:
+
+```text
+3 passed
+```
+
+---
+
+### 21-7. Web E2E QA Flow
+
+Playwright Web E2E 테스트의 QA 흐름은 다음과 같습니다.
+
+```text
+FastAPI Web Demo 서버 실행
+        ↓
+Playwright가 실제 URL 접속
+        ↓
+로그인 페이지 표시 여부 확인
+        ↓
+Email / Password 입력
+        ↓
+Submit 버튼 클릭
+        ↓
+정상 로그인 또는 실패 화면 확인
+        ↓
+Expected Result와 Actual Result 비교
+        ↓
+PASS / FAIL 판정
+```
+
+---
+
+### 21-8. 기존 API Test와 Web E2E Test의 차이
+
+| 구분 | API Test | Web E2E Test |
+|---|---|---|
+| 테스트 도구 | FastAPI TestClient | Playwright |
+| 검증 대상 | API Endpoint 응답 | 실제 브라우저 화면 |
+| 서버 실행 | 별도 서버 실행 불필요 | FastAPI 서버 실행 필요 |
+| 검증 기준 | HTTP Status Code, JSON Body | 화면 문구, 입력창, 버튼, 화면 전환 |
+| 사용자 흐름 | 코드에서 API 직접 호출 | 사용자의 실제 화면 조작 흐름 자동화 |
+
+---
+
+### 21-9. 현재 구현 상태
+
+현재 프로젝트의 구현 상태는 다음과 같습니다.
+
+```text
+Mock Device / API 자동화
+- pytest 기반 Smoke / Regression Test 구성 완료
+- FastAPI TestClient 기반 API Test 구성 완료
+- 총 21개 테스트 PASS
+- Coverage 93%
+- Local CI Pipeline 구성 완료
+- GitHub Actions CI 통합 완료
+- Quality Gate GO / NO-GO 판정 구조 구현 완료
+
+Playwright Web E2E 자동화
+- FastAPI Form 기반 실제 로그인 Web Demo 구현 완료
+- Playwright 실제 URL 로그인 E2E 3개 구현 완료
+- 로컬 실행 기준 3개 테스트 PASS 확인
+- GitHub Actions CI 통합은 다음 단계에서 진행 예정
+```
+
+---
+
+### 21-10. QA Engineering Point
+
+이번 Web E2E 확장을 통해 기존 Mock Device / API 중심의 자동화 검증 구조를 실제 브라우저 기반 사용자 시나리오 검증으로 확장했습니다.
+
+QA 관점에서 의미는 다음과 같습니다.
+
+- API 응답 검증과 UI 동작 검증의 차이를 이해
+- 실제 URL 접속 기반 E2E 테스트 구성
+- 로그인 정상 / 비정상 시나리오 자동화
+- 사용자 입력, 버튼 클릭, 화면 전환, 오류 메시지 표시 여부 검증
+- 기존 System Test / Integration Test 경험을 Web QA 자동화 구조로 확장
+- 향후 CI 환경에서 브라우저 기반 테스트를 자동 실행할 수 있는 기반 확보
+
+현재 Playwright Web E2E 테스트는 로컬 실행 기준으로 구현 및 검증이 완료되었으며, GitHub Actions CI 통합은 다음 개선 단계로 분리하여 진행합니다.
+
+---
+
+## 22. 향후 개선 계획
+
+본 프로젝트의 다음 개선 목표는 Playwright Web E2E 테스트를 GitHub Actions에 통합하고, 실패 발생 시 원인 분석에 필요한 증빙 자료를 자동으로 저장하는 구조를 추가하는 것입니다.
+
+향후 개선 항목은 다음과 같습니다.
+
+```text
+1. Playwright Web E2E GitHub Actions CI 통합
+2. FastAPI Web Demo 서버를 CI 환경에서 백그라운드 실행
+3. 실패 시 스크린샷 자동 저장
+4. Playwright Trace 저장
+5. 실패 테스트 실행 영상 저장
+6. 단계별 실행 로그 저장
+7. JUnit XML 결과 파싱
+8. 실패 로그 파싱 및 오류 유형 분류
+9. JSON / Markdown 테스트 요약 생성
+10. Allure 기반 대시보드 리포트 생성
+11. GitHub Actions Summary에 테스트 결과 표시
+12. 실패 증빙 Artifact 업로드
+```
+
+향후 목표 구조는 다음과 같습니다.
+
+```text
+Playwright E2E 실행
+        ↓
+성공 / 실패 결과 확인
+        ↓
+실패 시 Screenshot / Trace / Video / Log 저장
+        ↓
+JUnit XML 결과 생성
+        ↓
+Python Parser로 결과 요약
+        ↓
+Allure Dashboard 생성
+        ↓
+GitHub Actions Artifact 저장
+```
+
+현재 README에서는 위 항목을 향후 개선 계획으로만 정리하며, 아직 완료된 기능으로 표시하지 않습니다.
+

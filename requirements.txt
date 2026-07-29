@@ -3,3 +3,6 @@ pytest-html
 pytest-cov
 fastapi
 httpx
+python-multipart
+uvicorn[standard]
+pytest-playwright
