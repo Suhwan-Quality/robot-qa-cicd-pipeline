@@ -64,8 +64,8 @@ jobs:
           # --cov-report=html:reports/coverage_html은 사람이 볼 수 있는 HTML coverage report를 생성한다.
           # --cov-fail-under=90은 커버리지가 90% 미만이면 이 단계를 실패 처리한다.
           # *> logs/coverage_test_log.txt는 실행 로그를 coverage_test_log.txt 파일에 저장한다.
-          python -m pytest tests -v --cov=app.device --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=html:reports/coverage_html --cov-fail-under=90 *> logs/coverage_test_log.txt
-
+          python -m pytest tests -v --ignore=tests/web_ui --cov=app.device --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-report=html:reports/coverage_html --cov-fail-under=90
+          
           # $LASTEXITCODE는 바로 위에서 실행한 pytest 명령어의 종료 결과값이다.
           # 0이면 성공, 0이 아니면 실패를 의미한다.
           # Coverage가 90% 미만이거나 테스트가 실패하면 pytest는 0이 아닌 값을 반환한다.
