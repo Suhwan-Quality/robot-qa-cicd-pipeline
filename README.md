@@ -1962,3 +1962,45 @@ GitHub Actions Artifact 저장
 
 현재 README에서는 위 항목을 향후 개선 계획으로만 정리하며, 아직 완료된 기능으로 표시하지 않습니다.
 
+---
+
+## 23. Playwright Web E2E GitHub Actions 정식 통합 완료
+
+기존에는 Playwright Web E2E 테스트가 로컬 환경에서 PASS되는 수준까지 구현되어 있었고,
+GitHub Actions에서는 기존 Mock Device/API 테스트의 안정성을 위해 `tests/web_ui`를 Coverage 대상에서 제외했습니다.
+
+이번 단계에서는 Playwright Web E2E 테스트를 GitHub Actions에 정식 통합했습니다.
+
+### 적용 내용
+
+- GitHub Actions에서 Playwright Chromium 브라우저 설치
+- CI 환경에서 FastAPI Web Demo 서버 실행
+- `/login` 페이지 준비 상태 확인 후 Web E2E 테스트 실행
+- `tests/web_ui` Playwright 테스트를 별도 CI 단계로 실행
+- Web E2E 결과 HTML/XML 리포트 생성
+- FastAPI 서버 로그 및 Web E2E 실행 로그 저장
+- 실패 시 screenshot/trace를 저장할 수 있도록 Playwright 옵션 구성
+- GitHub Actions Artifact에 Web E2E 결과 자료 업로드
+
+### CI 실행 구조
+
+```text
+Install required packages
+    ↓
+Install Playwright Chromium
+    ↓
+Run Smoke Tests
+    ↓
+Run Regression Tests
+    ↓
+Run Coverage Check
+    ↓
+Run Playwright Web E2E Tests
+    ├─ Start FastAPI Web Demo server
+    ├─ Check /login readiness
+    ├─ Run Playwright tests
+    └─ Stop FastAPI server
+    ↓
+Save Quality Gate Result
+    ↓
+Upload test artifacts
