@@ -82,16 +82,24 @@ jobs:
             # GitHub Actions job을 실패 상태로 종료한다.
             exit $LASTEXITCODE
           }
-
-      - name: Start FastAPI Web Demo
-        # Playwright Web E2E 테스트가 접속할 실제 로그인 Web 서버를 실행한다.
-        # GitHub Actions의 Windows 환경에서 Start-Process를 사용하면
-        # Uvicorn 서버를 백그라운드 프로세스로 실행할 수 있다.
+      - name: Run Playwright Web E2E Tests
+        # FastAPI Web Demo의 /login 화면을 실제 Chromium 브라우저로 검증한다.
+        # 기존 Mock Device / API 테스트는 Coverage Check 단계에서 검증하고,
+        # Web UI 테스트는 여기서 별도 E2E 단계로 실행한다.
         #
-        # CI에서는 --reload 옵션을 사용하지 않는다.
-        # --reload는 로컬 개발 중 코드 변경을 자동 감지하기 위한 기능이므로
-        # 한 번 실행하고 테스트하는 CI 환경에는 필요하지 않다.
+        # 이 단계 안에서 아래 작업을 한 번에 처리한다.
+        # 1. FastAPI Web Demo 서버 실행
+        # 2. /login 페이지 준비 상태 확인
+        # 3. Playwright Web E2E 테스트 실행
+        # 4. 테스트 종료 후 FastAPI 서버 종료
+        #
+        # 서버 실행과 /login 확인을 별도 GitHub Actions step으로 분리하면
+        # 백그라운드 프로세스 유지나 접속 타이밍 문제가 생길 수 있다.
+        # 그래서 서버 실행, 준비 확인, E2E 실행을 같은 step 안에서 처리한다.
         run: |
+          # FastAPI Web Demo 서버를 백그라운드 프로세스로 실행한다.
+          # Start-Process는 PowerShell에서 별도 프로세스를 실행할 때 사용하는 명령어다.
+          # 여기서는 python -m uvicorn app.web_demo:app 명령을 별도 프로세스로 실행한다.
           $serverProcess = Start-Process `
             -FilePath python `
             -ArgumentList "-m", "uvicorn", "app.web_demo:app", "--host", "127.0.0.1", "--port", "8000" `
@@ -99,63 +107,73 @@ jobs:
             -RedirectStandardOutput "logs/web_demo_server.log" `
             -RedirectStandardError "logs/web_demo_server_error.log"
 
-          "FASTAPI_PROCESS_ID=$($serverProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
+          # 서버 프로세스가 시작되면 PID를 GitHub Actions 로그에 출력한다.
+          # 나중에 서버 종료 또는 실패 분석 시 어떤 프로세스가 실행됐는지 확인할 수 있다.
           Write-Host "FastAPI Web Demo process started. PID=$($serverProcess.Id)"
-      - name: Wait for Login Page
-        # FastAPI 서버가 백그라운드에서 실행되더라도
-        # /login 페이지가 즉시 준비되는 것은 아닐 수 있다.
-        # 따라서 Playwright 테스트를 실행하기 전에 /login URL이 정상 응답하는지 반복 확인한다.
-        run: |
+
+          # Playwright 테스트가 접속할 로그인 페이지 URL이다.
+          # 127.0.0.1은 GitHub Actions 실행 환경 내부의 자기 자신을 의미한다.
           $loginUrl = "http://127.0.0.1:8000/login"
+
+          # 서버가 바로 준비되지 않을 수 있으므로 최대 30번까지 재시도한다.
+          # 1초 간격으로 30번 확인하므로 최대 약 30초 동안 기다린다.
           $maxRetryCount = 30
           $retryIntervalSeconds = 1
+
+          # 처음에는 /login 페이지가 아직 준비되지 않았다고 가정한다.
+          # HTTP 200 응답을 받으면 이 값을 $true로 변경한다.
           $isReady = $false
 
+          # /login 페이지가 정상 응답하는지 반복 확인한다.
           for ($retryIndex = 1; $retryIndex -le $maxRetryCount; $retryIndex++) {
             try {
+              # Invoke-WebRequest는 PowerShell에서 HTTP 요청을 보내는 명령어다.
+              # 여기서는 브라우저를 여는 것이 아니라 /login URL이 응답 가능한지만 확인한다.
               $response = Invoke-WebRequest -Uri $loginUrl -UseBasicParsing -TimeoutSec 2
 
+              # HTTP 200은 서버가 요청을 정상 처리했다는 의미다.
+              # /login이 200을 반환하면 Playwright 테스트를 실행할 준비가 된 상태다.
               if ($response.StatusCode -eq 200) {
                 Write-Host "Login page is ready. URL=$loginUrl"
                 $isReady = $true
                 break
               }
+
+              # 200이 아닌 응답이 오면 상태 코드를 로그로 남기고 다시 시도한다.
+              Write-Host "Login page returned status code $($response.StatusCode). retry $retryIndex / $maxRetryCount"
+              Start-Sleep -Seconds $retryIntervalSeconds
             }
             catch {
+              # 서버가 아직 준비되지 않았거나 접속에 실패하면 catch로 들어온다.
+              # 실패 원인을 확인할 수 있도록 마지막 오류 메시지를 함께 출력한다.
               Write-Host "Waiting for login page... retry $retryIndex / $maxRetryCount"
+              Write-Host "Last error: $($_.Exception.Message)"
               Start-Sleep -Seconds $retryIntervalSeconds
             }
           }
 
+          # 정해진 횟수 안에 /login 페이지가 준비되지 않으면 CI를 실패 처리한다.
+          # 이때 FastAPI 서버 로그를 출력해서 원인을 분석할 수 있게 한다.
           if (-not $isReady) {
             Write-Host "Login page was not ready in time."
             Get-Content logs/web_demo_server.log -ErrorAction SilentlyContinue
             Get-Content logs/web_demo_server_error.log -ErrorAction SilentlyContinue
+
+            # 실패하더라도 백그라운드 서버 프로세스는 정리한다.
+            Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
             exit 1
           }
 
-      - name: Run Playwright Web E2E Tests
-        # FastAPI Web Demo의 /login 화면을 실제 Chromium 브라우저로 검증한다.
-        # tests/web_ui 폴더는 기존 Mock/API Coverage 대상에서는 제외했지만,
-        # 여기서는 별도 Web E2E 단계로 정식 실행한다.
-        #
-        # --browser chromium:
-        #   Playwright에서 Chromium 브라우저를 사용한다.
-        #
-        # --base-url:
-        #   테스트 코드에서 page.goto("/login") 같은 상대 경로를 사용할 경우
-        #   http://127.0.0.1:8000/login 으로 해석할 수 있게 해준다.
-        #
-        # --output=test-results:
-        #   실패 screenshot, trace 같은 Playwright 산출물을 test-results 폴더에 저장한다.
-        #
-        # --tracing=retain-on-failure:
-        #   테스트 실행 흐름을 기록하되, 실패한 테스트의 trace만 보관한다.
-        #
-        # --screenshot=only-on-failure:
-        #   실패한 테스트에 대해서만 screenshot을 자동 저장한다.
-        run: |
+          # /login 준비가 완료되면 Playwright Web E2E 테스트를 실행한다.
+          # tests/web_ui 폴더만 대상으로 실행한다.
+          # --browser chromium: Chromium 브라우저 사용
+          # --base-url: page.goto("/login") 같은 상대 경로의 기준 주소
+          # --output: screenshot, trace 같은 Playwright 결과 저장 폴더
+          # --tracing=retain-on-failure: 실패한 테스트의 trace만 보관
+          # --screenshot=only-on-failure: 실패한 테스트의 screenshot만 보관
+          # --junitxml: CI 분석용 XML 결과 생성
+          # --html: 사람이 보기 좋은 HTML 리포트 생성
+          # *> logs/web_e2e_test_log.txt: 실행 로그를 파일로 저장
           python -m pytest tests/web_ui -v `
             --browser chromium `
             --base-url=http://127.0.0.1:8000 `
@@ -167,9 +185,18 @@ jobs:
             --self-contained-html `
             *> logs/web_e2e_test_log.txt
 
-          if ($LASTEXITCODE -ne 0) {
+          # pytest 실행 결과 코드를 변수에 저장한다.
+          # 바로 서버를 종료해야 하므로, 테스트 성공/실패 결과를 먼저 보관해둔다.
+          $webE2eExitCode = $LASTEXITCODE
+
+          # Playwright 테스트가 끝났으므로 FastAPI 서버 프로세스를 종료한다.
+          # CI 환경에서 백그라운드 프로세스를 남기지 않기 위한 정리 단계다.
+          Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+
+          # Playwright 테스트가 실패했다면 Quality Gate를 NO-GO로 기록하고 CI를 실패 처리한다.
+          if ($webE2eExitCode -ne 0) {
             "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
-            exit $LASTEXITCODE
+            exit $webE2eExitCode
           }
       - name: Save Quality Gate Result
         # Smoke, Regression, Coverage Check가 모두 통과한 경우에만 실행되는 단계이다.
@@ -215,7 +242,7 @@ jobs:
             logs/coverage_test_log.txt
             logs/environment_info.txt
             reports/coverage.xml
-            reports/coverage_html
+            reports/coverage_html/**
             reports/web_e2e_result.xml
             reports/web_e2e_result.html
             logs/web_e2e_test_log.txt
