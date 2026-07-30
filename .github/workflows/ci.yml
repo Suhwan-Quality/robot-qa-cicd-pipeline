@@ -25,6 +25,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Install Playwright Chromium
+        # requirements.txt를 통해 설치된 Playwright Python 패키지의 명령어를 사용한다.
+        # GitHub Actions의 새 Windows 실행 환경에는 Playwright용 Chromium이 없으므로
+        # Web E2E 테스트를 실행하기 전에 호환되는 Chromium 브라우저를 내려받는다.
+        run: python -m playwright install chromium
+
       - name: Create report and log folders
         run: |
           New-Item -ItemType Directory -Force -Path reports | Out-Null
@@ -77,6 +83,94 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      - name: Start FastAPI Web Demo
+        # Playwright Web E2E 테스트가 접속할 실제 로그인 Web 서버를 실행한다.
+        # GitHub Actions의 Windows 환경에서 Start-Process를 사용하면
+        # Uvicorn 서버를 백그라운드 프로세스로 실행할 수 있다.
+        #
+        # CI에서는 --reload 옵션을 사용하지 않는다.
+        # --reload는 로컬 개발 중 코드 변경을 자동 감지하기 위한 기능이므로
+        # 한 번 실행하고 테스트하는 CI 환경에는 필요하지 않다.
+        run: |
+          $serverProcess = Start-Process `
+            -FilePath python `
+            -ArgumentList "-m", "uvicorn", "app.web_demo:app", "--host", "127.0.0.1", "--port", "8000" `
+            -PassThru `
+            -RedirectStandardOutput "logs/web_demo_server.log" `
+            -RedirectStandardError "logs/web_demo_server_error.log"
+
+          "FASTAPI_PROCESS_ID=$($serverProcess.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          Write-Host "FastAPI Web Demo process started. PID=$($serverProcess.Id)"
+      - name: Wait for Login Page
+        # FastAPI 서버가 백그라운드에서 실행되더라도
+        # /login 페이지가 즉시 준비되는 것은 아닐 수 있다.
+        # 따라서 Playwright 테스트를 실행하기 전에 /login URL이 정상 응답하는지 반복 확인한다.
+        run: |
+          $loginUrl = "http://127.0.0.1:8000/login"
+          $maxRetryCount = 30
+          $retryIntervalSeconds = 1
+          $isReady = $false
+
+          for ($retryIndex = 1; $retryIndex -le $maxRetryCount; $retryIndex++) {
+            try {
+              $response = Invoke-WebRequest -Uri $loginUrl -UseBasicParsing -TimeoutSec 2
+
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Login page is ready. URL=$loginUrl"
+                $isReady = $true
+                break
+              }
+            }
+            catch {
+              Write-Host "Waiting for login page... retry $retryIndex / $maxRetryCount"
+              Start-Sleep -Seconds $retryIntervalSeconds
+            }
+          }
+
+          if (-not $isReady) {
+            Write-Host "Login page was not ready in time."
+            Get-Content logs/web_demo_server.log -ErrorAction SilentlyContinue
+            Get-Content logs/web_demo_server_error.log -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      - name: Run Playwright Web E2E Tests
+        # FastAPI Web Demo의 /login 화면을 실제 Chromium 브라우저로 검증한다.
+        # tests/web_ui 폴더는 기존 Mock/API Coverage 대상에서는 제외했지만,
+        # 여기서는 별도 Web E2E 단계로 정식 실행한다.
+        #
+        # --browser chromium:
+        #   Playwright에서 Chromium 브라우저를 사용한다.
+        #
+        # --base-url:
+        #   테스트 코드에서 page.goto("/login") 같은 상대 경로를 사용할 경우
+        #   http://127.0.0.1:8000/login 으로 해석할 수 있게 해준다.
+        #
+        # --output=test-results:
+        #   실패 screenshot, trace 같은 Playwright 산출물을 test-results 폴더에 저장한다.
+        #
+        # --tracing=retain-on-failure:
+        #   테스트 실행 흐름을 기록하되, 실패한 테스트의 trace만 보관한다.
+        #
+        # --screenshot=only-on-failure:
+        #   실패한 테스트에 대해서만 screenshot을 자동 저장한다.
+        run: |
+          python -m pytest tests/web_ui -v `
+            --browser chromium `
+            --base-url=http://127.0.0.1:8000 `
+            --output=test-results `
+            --tracing=retain-on-failure `
+            --screenshot=only-on-failure `
+            --junitxml=reports/web_e2e_result.xml `
+            --html=reports/web_e2e_result.html `
+            --self-contained-html `
+            *> logs/web_e2e_test_log.txt
+
+          if ($LASTEXITCODE -ne 0) {
+            "NO-GO" | Out-File -FilePath reports/quality_gate.txt -Encoding utf8
+            exit $LASTEXITCODE
+          }
       - name: Save Quality Gate Result
         # Smoke, Regression, Coverage Check가 모두 통과한 경우에만 실행되는 단계이다.
         # 앞 단계 중 하나라도 실패하면 workflow가 실패로 종료되기 때문에 여기까지 오지 못한다.
@@ -91,11 +185,25 @@ jobs:
           "Quality Gate: GO" | Out-File -FilePath reports/quality_gate.txt -Append -Encoding utf8
 
       - name: Upload test artifacts
+        # 테스트가 성공하든 실패하든 항상 실행한다.
+        # 실패 원인을 분석하려면 pytest report, 실행 로그, coverage 결과,
+        # FastAPI 서버 로그, Playwright screenshot/trace 같은 자료가 필요하다.
+        #
+        # actions/upload-artifact@v4는 GitHub Actions 실행 결과 화면에서
+        # 파일을 다운로드할 수 있게 해주는 공식 Artifact 업로드 액션이다.
+
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          # GitHub Actions 화면에 표시될 Artifact 이름이다.
           name: qa-test-artifacts
+
+          # 일부 파일이 없더라도 바로 실패 처리하지 않고 경고만 표시한다.
+          # 예를 들어 Playwright 테스트가 모두 성공하면 실패 screenshot/trace가 없을 수 있다.
           if-no-files-found: warn
+
+          # path 아래에는 업로드할 파일 또는 폴더 경로만 작성한다.
+          # 주석을 path 목록 안에 넣으면 파일 경로처럼 처리될 수 있으므로 넣지 않는다.
           path: |
             reports/smoke_result.xml
             reports/smoke_result.html
@@ -107,4 +215,10 @@ jobs:
             logs/coverage_test_log.txt
             logs/environment_info.txt
             reports/coverage.xml
-            reports/coverage_html/**
+            reports/coverage_html
+            reports/web_e2e_result.xml
+            reports/web_e2e_result.html
+            logs/web_e2e_test_log.txt
+            logs/web_demo_server.log
+            logs/web_demo_server_error.log
+            test-results/**
